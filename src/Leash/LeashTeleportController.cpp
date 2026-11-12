@@ -43,7 +43,7 @@ namespace LeashFramework {
             const auto* actorState = a_actor.AsActorState();
             const auto* process = a_actor.GetActorRuntimeData().currentProcess;
             const auto* race = a_actor.GetRace();
-            return !ActorRestrictions::IsRagdollOrTeleportBlocked(a_actor) && !a_actor.IsInRagdollState() && actorState->GetKnockState() == RE::KNOCK_STATE_ENUM::kNormal &&
+            return !ActorRestrictions::IsRagdollOrTeleportBlocked(a_actor) && !a_actor.IsInKillMove() && !a_actor.IsInRagdollState() && actorState->GetKnockState() == RE::KNOCK_STATE_ENUM::kNormal &&
                    race && !race->data.flags.any(RE::RACE_DATA::Flag::kImmobile) &&
                    !race->data.flags.any(RE::RACE_DATA::Flag::kNoKnockdowns) && actorState->GetLifeState() != RE::ACTOR_LIFE_STATE::kRestrained && process &&
                    (!process->high || static_cast<std::uint16_t>(process->high->animAction) != static_cast<std::uint16_t>(RE::CombatAnimation::ANIM::kActionActivate));
@@ -89,7 +89,26 @@ namespace LeashFramework {
         return teleported;
     }
 
-    LeashTeleportController::UpdateResult LeashTeleportController::Update(LeashInstance& a_leash, float a_deltaTime) {
+    bool LeashTeleportController::CanRecoverFollower(const LeashInstance& a_leash) const {
+        const auto& definition = a_leash.GetDefinition();
+        if (definition.holderFormID == 0 || !definition.overrides.teleport.value_or(true) || definition.minLength > kFollowHandlingDisabledMinLength) {
+            return false;
+        }
+        auto* leader = RE::TESForm::LookupByID<RE::Actor>(definition.GetFormID(Opposite(definition.follower)));
+        auto* follower = RE::TESForm::LookupByID<RE::Actor>(definition.GetFormID(definition.follower));
+        if (!leader || !follower || !leader->GetParentCell() || leader->IsPlayerRef() || leader->IsDisabled() || follower->IsDisabled() || leader->IsDead(true) || follower->IsDead(true)) {
+            return false;
+        }
+        const auto distance = follower->IsPlayerRef() ? _settings.playerDistance : _settings.npcDistance;
+        return distance > 0.0F || definition.overrides.teleport.value_or(false);
+    }
+
+    std::uint32_t LeashTeleportController::GetRecoveryTargetFormID(const LeashInstance& a_leash) const {
+        const auto& definition = a_leash.GetDefinition();
+        return a_leash._teleportState.pendingPlayerPosition ? GetPlayerPartnerFormID(definition) : definition.GetFormID(definition.follower);
+    }
+
+    LeashTeleportController::UpdateResult LeashTeleportController::Update(LeashInstance& a_leash, float a_deltaTime, bool a_allowFollowerRecovery) {
         LF_PROFILE_SCOPE("Controller/Teleport");
         const auto& definition = a_leash.GetDefinition();
         auto& state = a_leash._teleportState;
@@ -119,6 +138,13 @@ namespace LeashFramework {
             }
             state.pendingPlayerPosition = false;
             return UpdateResult::kTeleported;
+        }
+        // Player positioning brings the partner along independently of ordinary follower ownership.
+        if (!a_allowFollowerRecovery) {
+            state.reason = SeparationReason::kNone;
+            state.graceElapsed = 0.0F;
+            state.cooldownRemaining = std::max(state.cooldownRemaining - a_deltaTime, 0.0F);
+            return UpdateResult::kNone;
         }
         if (leader->IsPlayerRef()) {
             return UpdateResult::kNone;

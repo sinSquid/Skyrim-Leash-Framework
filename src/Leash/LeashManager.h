@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "../Animation/PullPoseController.h"
@@ -83,6 +84,7 @@ namespace LeashFramework {
         LeashTeleportController _teleportController;
         Animation::PullPoseController _pullPoseController;
         std::vector<std::unique_ptr<LeashInstance>> _leashes;
+        std::unordered_map<RE::FormID, RE::FormID> _teleportOwners;
         Physics::ActorBodyCollision _actorBodyCollision;
         Physics::SimulationSettings _settings;
         bool _simulationSuspended{};

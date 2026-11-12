@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace LeashFramework {
     class LeashInstance;
 
@@ -19,7 +21,10 @@ namespace LeashFramework {
         void SetSettings(LeashTeleportSettings a_settings) noexcept;
 
         [[nodiscard]] bool HandlePlayerPositioned(LeashInstance& a_leash);
-        [[nodiscard]] UpdateResult Update(LeashInstance& a_leash, float a_deltaTime);
+        // Eligible to own ordinary separation recovery, including its settled/cooldown frames.
+        [[nodiscard]] bool CanRecoverFollower(const LeashInstance& a_leash) const;
+        [[nodiscard]] std::uint32_t GetRecoveryTargetFormID(const LeashInstance& a_leash) const;
+        [[nodiscard]] UpdateResult Update(LeashInstance& a_leash, float a_deltaTime, bool a_allowFollowerRecovery);
 
     private:
         friend class LeashInstance;

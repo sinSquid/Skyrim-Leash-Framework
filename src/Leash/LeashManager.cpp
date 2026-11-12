@@ -531,6 +531,29 @@ namespace LeashFramework {
                 followerControllers.try_emplace(definition.GetFormID(definition.follower), leash.get());
             }
         }
+        // Keep the last eligible teleport owner while settled or cooling down. A different active pull can
+        // take over, and a removed or disabled owner falls back to the first eligible leash.
+        auto teleportControllers = followerControllers;
+        for (const auto& leash : _leashes) {
+            if (_teleportController.CanRecoverFollower(*leash)) {
+                const auto& definition = leash->GetDefinition();
+                const auto followerFormID = definition.GetFormID(definition.follower);
+                const auto owner = _teleportOwners.find(followerFormID);
+                if (owner != _teleportOwners.end() && owner->second == definition.leashedFormID) {
+                    teleportControllers.try_emplace(followerFormID, leash.get());
+                }
+            }
+        }
+        for (const auto& leash : _leashes) {
+            if (_teleportController.CanRecoverFollower(*leash)) {
+                const auto& definition = leash->GetDefinition();
+                teleportControllers.try_emplace(definition.GetFormID(definition.follower), leash.get());
+            }
+        }
+        _teleportOwners.clear();
+        for (const auto& [followerFormID, leash] : teleportControllers) {
+            _teleportOwners.emplace(followerFormID, leash->GetDefinition().leashedFormID);
+        }
         // Only publish a lean after its leash has ticked. Since the list is sorted, actors farther down the train can use the pose their holder just prepared
         PoseRegistry poses;
         poses.Reserve(_leashes.size());
@@ -539,9 +562,23 @@ namespace LeashFramework {
             const auto followerFormID = definition.GetFormID(definition.follower);
             const auto followerController = followerControllers.find(followerFormID);
             const auto allowFollowerControl = followerController == followerControllers.end() || followerController->second == leash.get();
-            const auto teleportResult = _teleportController.Update(*leash, a_deltaTime);
+            const auto teleportController = teleportControllers.find(followerFormID);
+            const auto allowFollowerRecovery = teleportController == teleportControllers.end() || teleportController->second == leash.get();
+            const auto recoveryTargetFormID = _teleportController.GetRecoveryTargetFormID(*leash);
+            const auto teleportResult = _teleportController.Update(*leash, a_deltaTime, allowFollowerRecovery);
             if (teleportResult == LeashTeleportController::UpdateResult::kTeleported) {
                 leash->ReleaseControl();
+                // Player positioning can move the leader instead. Invalidate every connected leash, including
+                // already-published poses and solved rope positions, before reserving the actor actually moved.
+                for (auto& affected : _leashes) {
+                    const auto& affectedDefinition = affected->GetDefinition();
+                    if (affected.get() != leash.get() && affectedDefinition.FindSide(recoveryTargetFormID)) {
+                        affected->ReleaseControl();
+                        affected->ResetSimulation();
+                    }
+                }
+                followerControllers.insert_or_assign(recoveryTargetFormID, leash.get());
+                teleportControllers.insert_or_assign(recoveryTargetFormID, leash.get());
             } else {
                 leash->Tick({.deltaTime = a_deltaTime,
                     .settings = _settings,
@@ -552,6 +589,8 @@ namespace LeashFramework {
             }
             if (allowFollowerControl && leash->IsControllingFollower()) {
                 followerControllers.try_emplace(followerFormID, leash.get());
+                teleportControllers.insert_or_assign(followerFormID, leash.get());
+                _teleportOwners.insert_or_assign(followerFormID, definition.leashedFormID);
             }
             poses.Publish(definition.leashedFormID, *leash);
         }
@@ -577,6 +616,7 @@ namespace LeashFramework {
             leash->ReleaseControl();
         }
         _leashes.clear();
+        _teleportOwners.clear();
         RefreshActorFactions(affectedActorFormIDs);
         _actorBodyCollision.Clear();
     }

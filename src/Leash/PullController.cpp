@@ -171,7 +171,10 @@ namespace LeashFramework {
         motion.hasSample = true;
         motion.movingBlend = std::lerp(motion.movingBlend, motion.moving ? 1.0F : 0.0F, 1.0F - std::exp(-kMovingGapResponseRate * deltaTime));
         a_state.retryDelay = std::max(a_state.retryDelay - deltaTime, 0.0F);
-        const auto distance = std::sqrt(HorizontalDistanceSquared(attachment, goal));
+        auto goalSeparation = goal - attachment;
+        // Actor following compares floor heights; a world anchor uses the actual attachment separation.
+        goalSeparation.z = goal.z - (hasLeader ? actor.GetPosition().z : attachment.z);
+        const auto distance = goalSeparation.Length();
         auto goalDirection = goal - attachment;
         goalDirection.z = 0.0F;
         (void)goalDirection.Unitize();
@@ -191,6 +194,18 @@ namespace LeashFramework {
             } else {
                 Movement::ClearLeashMovementConstraint(a_state.nativeMovementBinding);
             }
+        };
+        const auto getPathingRadius = [&] {
+            const auto* characterController = actor.GetCharController();
+            const auto controllerRadius = characterController ? characterController->radius * RE::bhkWorld::GetWorldScaleInverse() : kDefaultPathingRadius;
+            return std::isfinite(controllerRadius) && controllerRadius > 0.0F ? controllerRadius : kDefaultPathingRadius;
+        };
+        const auto planPath = [&](float a_actorRadius) {
+            static const Pathing::NavMeshPathfinder pathfinder;
+            a_state.path = pathfinder.FindPath(actor.GetPosition(), actor.GetParentCell(), goal, goalCell, a_actorRadius);
+            a_state.waypointIndex = 0;
+            a_state.lastGoal = goal;
+            a_state.replanDelay = kReplanInterval;
         };
         if (!a_state.active) {
             const auto physicalSeparation = distance > arrivalDistance + kRestartTolerance && attachment.GetDistance(anchor) > a_ropeLength + kRestartTolerance;
@@ -213,6 +228,27 @@ namespace LeashFramework {
             if (Movement::IsDirectLocomotionActive(actor)) {
                 LogPullDecision(_diagnosticsEnabled, PullDiagnosticStage::kDirectActiveBlocked, "blocked by existing direct locomotion", actor, distance, a_minLength, a_maxLength);
                 return;
+            }
+
+            if (HorizontalDistanceSquared(attachment, goal) <= arrivalDistance * arrivalDistance && distance > arrivalDistance) {
+                // A vertical gap needs a walkable horizontal route. Do not take player controls just to wait
+                // at a projected waypoint directly above or below the actor; reuse a usable preflight path.
+                const auto actorRadius = getPathingRadius();
+                planPath(actorRadius);
+                bool hasWaypoint{};
+                for (std::size_t index = 0; index < a_state.path.size(); ++index) {
+                    const auto waypointRadius = index + 1 < a_state.path.size() ? actorRadius : kFinalWaypointRadius;
+                    if (HorizontalDistanceSquared(actor.GetPosition(), a_state.path[index]) > waypointRadius * waypointRadius) {
+                        hasWaypoint = true;
+                        break;
+                    }
+                }
+                if (!hasWaypoint) {
+                    LogPullDecision(_diagnosticsEnabled, PullDiagnosticStage::kWaitingForPath, "waiting for a horizontal route across vertical separation", actor, distance, a_minLength, a_maxLength);
+                    a_state.retryDelay = kRetryDelay;
+                    allowNativeMovement();
+                    return;
+                }
             }
 
             bool restorePlayerControls{};
@@ -282,16 +318,10 @@ namespace LeashFramework {
         }
 
         a_state.replanDelay -= deltaTime;
-        const auto goalMoved = HorizontalDistanceSquared(goal, a_state.lastGoal) >= kGoalMoveThreshold * kGoalMoveThreshold;
-        const auto* characterController = actor.GetCharController();
-        const auto controllerRadius = characterController ? characterController->radius * RE::bhkWorld::GetWorldScaleInverse() : kDefaultPathingRadius;
-        const auto actorRadius = std::isfinite(controllerRadius) && controllerRadius > 0.0F ? controllerRadius : kDefaultPathingRadius;
+        const auto goalMoved = (goal - a_state.lastGoal).SqrLength() >= kGoalMoveThreshold * kGoalMoveThreshold;
+        const auto actorRadius = getPathingRadius();
         if (a_state.replanDelay <= 0.0F || goalMoved) {
-            static const Pathing::NavMeshPathfinder pathfinder;
-            a_state.path = pathfinder.FindPath(actor.GetPosition(), actor.GetParentCell(), goal, goalCell, actorRadius);
-            a_state.waypointIndex = 0;
-            a_state.lastGoal = goal;
-            a_state.replanDelay = kReplanInterval;
+            planPath(actorRadius);
         }
 
         while (a_state.waypointIndex < a_state.path.size()) {

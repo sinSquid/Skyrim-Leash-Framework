@@ -39,7 +39,6 @@ namespace LeashFramework::Movement {
             float maxLength{};
             bool leader{};
             bool player{};
-            std::optional<bool> preventOverstretch;
         };
 
         struct Circle {
@@ -146,17 +145,14 @@ namespace LeashFramework::Movement {
         }
 
         void ConstrainHorizontalVelocity(std::span<const BoundarySample> a_samples, RE::NiPoint3& a_velocity, float a_deltaTime, float a_turn) {
+            // Only enabled boundaries are published; worker callbacks consume this snapshot without reading settings.
             for (const auto& sample : a_samples) {
-                if (!sample.leader || sample.preventOverstretch.value_or(preventHolderOverstretch)) {
-                    VisitCircles(sample, a_turn, [&](const Circle& a_circle) { ConstrainVelocity(a_velocity, a_circle, a_deltaTime); });
-                }
+                VisitCircles(sample, a_turn, [&](const Circle& a_circle) { ConstrainVelocity(a_velocity, a_circle, a_deltaTime); });
             }
             const auto step = a_velocity * a_deltaTime;
             float allowedStep = 1.0F;
             for (const auto& sample : a_samples) {
-                if (!sample.leader || sample.preventOverstretch.value_or(preventHolderOverstretch)) {
-                    VisitCircles(sample, a_turn, [&](const Circle& a_circle) { allowedStep = std::min(allowedStep, AllowedStep(step, a_circle)); });
-                }
+                VisitCircles(sample, a_turn, [&](const Circle& a_circle) { allowedStep = std::min(allowedStep, AllowedStep(step, a_circle)); });
             }
             a_velocity *= allowedStep;
         }
@@ -240,11 +236,13 @@ namespace LeashFramework::Movement {
     }  // namespace
 
     HolderMovementSettings GetHolderMovementSettings() {
+        const std::shared_lock lock{boundaryMutex};
         return {preventHolderOverstretch, holderStretchAllowance};
     }
 
     void SetHolderMovementSettings(HolderMovementSettings a_settings) {
         const auto allowance = std::isfinite(a_settings.stretchAllowance) ? std::clamp(a_settings.stretchAllowance, -150.0F, 150.0F) : 10.0F;
+        const std::unique_lock lock{boundaryMutex};
         holderStretchAllowance = allowance;
         preventHolderOverstretch = a_settings.preventOverstretch;
     }
@@ -292,7 +290,7 @@ namespace LeashFramework::Movement {
 
         PublishBoundary(a_binding, controller, {.actorPosition = a_leader.GetPosition(), .attachmentOffset = a_attachment - a_leader.GetPosition(),
             .anchor = a_anchor, .heading = a_leader.GetAngleZ(), .ropeLength = std::max(a_ropeLength + settings.stretchAllowance, 0.001F), .leader = true,
-            .player = std::addressof(a_leader) == RE::PlayerCharacter::GetSingleton(), .preventOverstretch = a_preventOverstretch});
+            .player = std::addressof(a_leader) == RE::PlayerCharacter::GetSingleton()});
     }
 
     void ClearLeashMovementConstraint(RE::MovementControllerNPC*& a_binding) {

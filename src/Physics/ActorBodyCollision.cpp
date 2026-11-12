@@ -226,9 +226,10 @@ namespace LeashFramework::Physics {
         };
 
         for (const auto& actor : _actors) {
-            if (actor.world != a_world || !Intersects(actor.bounds, queryMinimum, queryMaximum)) {
+            if (actor.world != a_world) {
                 continue;
             }
+            // Configured shapes can extend outside the rendered bound. Build once per frame before using their actual bounds.
             const auto* body = GetBody(actor);
             if (!body) {
                 continue;
@@ -291,9 +292,10 @@ namespace LeashFramework::Physics {
         };
 
         for (const auto& actor : _actors) {
-            if (actor.world != a_world || !Intersects(actor.bounds, queryMinimum, queryMaximum)) {
+            if (actor.world != a_world) {
                 continue;
             }
+            // Reuse the lazy body cache; a render-bound rejection here could hide both new shapes and their swept motion.
             const auto* body = GetBody(actor);
             if (!body) {
                 continue;
