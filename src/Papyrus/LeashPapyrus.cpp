@@ -3,6 +3,8 @@
 #include "../Leash/LeashManager.h"
 #include "../PCH.h"
 
+extern "C" __declspec(dllexport) bool LeashFramework_SupportsApplyIfFree() { return true; }
+
 namespace LeashFramework::Papyrus {
     namespace {
         constexpr std::string_view kScriptName = "LeashFramework";
@@ -34,10 +36,16 @@ namespace LeashFramework::Papyrus {
 
         bool ApplyStandalone(std::string_view a_function, RE::Actor* a_holder, RE::Actor* a_leashed, LeashAnchorDefinition a_anchor, const RE::BSFixedString& a_modelPath,
             const RE::BSFixedString& a_leashedBone, float a_offsetX, float a_offsetY, float a_offsetZ, const RE::BSFixedString& a_parentBone, const RE::BSFixedString& a_leashBoneMatch, float a_minLength,
-            float a_maxLength, bool a_persistent) {
+            float a_maxLength, bool a_persistent, std::optional<std::int32_t> a_disabledFeatures = std::nullopt) {
             if (!a_leashed) {
                 SKSE::log::warn("{} rejected null leashed actor", a_function);
                 return false;
+            }
+            LeashOverrides overrides;
+            if (a_disabledFeatures) {
+                if (*a_disabledFeatures < 0 || *a_disabledFeatures > 3) return false;
+                if (*a_disabledFeatures & 1) overrides.ragdoll = false;
+                if (*a_disabledFeatures & 2) overrides.preventOverstretch = false;
             }
             const auto toString = [](const RE::BSFixedString& a_text) { return std::string{std::string_view{a_text}}; };
             return LeashManager::GetSingleton().ApplyDefinition({.holderFormID = a_holder ? a_holder->GetFormID() : 0,
@@ -49,7 +57,8 @@ namespace LeashFramework::Papyrus {
                 .leashBoneMatch = toString(a_leashBoneMatch),
                 .minLength = a_minLength,
                 .maxLength = a_maxLength,
-                .persistent = a_persistent});
+                .persistent = a_persistent,
+                .overrides = overrides}, a_disabledFeatures.has_value());
         }
 
         bool ApplyStandaloneLeash(RE::StaticFunctionTag*, RE::Actor* a_holder, RE::Actor* a_leashed, RE::BSFixedString a_modelPath, RE::BSFixedString a_leashedBone, RE::BSFixedString a_parentBone,
@@ -60,6 +69,16 @@ namespace LeashFramework::Papyrus {
             }
             return ApplyStandalone("ApplyStandaloneLeash", a_holder, a_leashed, HandAnchor{.rightHand = a_rightHand}, a_modelPath, a_leashedBone, a_offsetX, a_offsetY, a_offsetZ, a_parentBone,
                 a_leashBoneMatch, a_minLength, a_maxLength, a_persistent);
+        }
+
+        bool ApplyStandaloneLeashIfFree(RE::StaticFunctionTag*, RE::Actor* a_holder, RE::Actor* a_leashed, RE::BSFixedString a_modelPath, RE::BSFixedString a_leashedBone, RE::BSFixedString a_parentBone,
+            RE::BSFixedString a_leashBoneMatch, float a_minLength, float a_maxLength, bool a_persistent, bool a_rightHand, float a_offsetX, float a_offsetY, float a_offsetZ, std::int32_t a_disabledFeatures) {
+            if (!a_holder) {
+                SKSE::log::warn("ApplyStandaloneLeash rejected null holder");
+                return false;
+            }
+            return ApplyStandalone("ApplyStandaloneLeash", a_holder, a_leashed, HandAnchor{.rightHand = a_rightHand}, a_modelPath, a_leashedBone, a_offsetX, a_offsetY, a_offsetZ, a_parentBone,
+                a_leashBoneMatch, a_minLength, a_maxLength, a_persistent, a_disabledFeatures);
         }
 
         bool ApplyStandaloneLeashToBone(RE::StaticFunctionTag*, RE::Actor* a_holder, RE::Actor* a_leashed, RE::BSFixedString a_modelPath, RE::BSFixedString a_leashedBone, RE::BSFixedString a_holderBone,
@@ -83,6 +102,17 @@ namespace LeashFramework::Papyrus {
             }
             return ApplyStandalone("ApplyStandaloneLeashAtPosition", nullptr, a_leashed, WorldPositionAnchor{.cellFormID = a_anchorCell->GetFormID(), .x = a_x, .y = a_y, .z = a_z}, a_modelPath,
                 a_leashedBone, a_offsetX, a_offsetY, a_offsetZ, a_parentBone, a_leashBoneMatch, a_minLength, a_maxLength, a_persistent);
+        }
+
+        bool ApplyStandaloneLeashAtPositionIfFree(RE::StaticFunctionTag*, RE::Actor* a_leashed, RE::TESObjectCELL* a_anchorCell, float a_x, float a_y, float a_z, RE::BSFixedString a_modelPath,
+            RE::BSFixedString a_leashedBone, RE::BSFixedString a_parentBone, RE::BSFixedString a_leashBoneMatch, float a_minLength, float a_maxLength, bool a_persistent, float a_offsetX, float a_offsetY,
+            float a_offsetZ, std::int32_t a_disabledFeatures) {
+            if (!a_anchorCell) {
+                SKSE::log::warn("ApplyStandaloneLeashAtPosition rejected null cell");
+                return false;
+            }
+            return ApplyStandalone("ApplyStandaloneLeashAtPosition", nullptr, a_leashed, WorldPositionAnchor{.cellFormID = a_anchorCell->GetFormID(), .x = a_x, .y = a_y, .z = a_z}, a_modelPath,
+                a_leashedBone, a_offsetX, a_offsetY, a_offsetZ, a_parentBone, a_leashBoneMatch, a_minLength, a_maxLength, a_persistent, a_disabledFeatures);
         }
 
         bool DisconnectLeash(RE::StaticFunctionTag*, RE::Actor* a_holder, RE::Actor* a_leashed) { return LeashManager::GetSingleton().Disconnect(a_holder, a_leashed); }
@@ -127,8 +157,10 @@ namespace LeashFramework::Papyrus {
         a_vm->RegisterFunction("ApplyHolderOwnedLeashToBone", kScriptName, ApplyHolderOwnedLeashToBone);
         a_vm->RegisterFunction("ApplyLeashAtPosition", kScriptName, ApplyLeashAtPosition);
         a_vm->RegisterFunction("ApplyStandaloneLeash", kScriptName, ApplyStandaloneLeash);
+        a_vm->RegisterFunction("ApplyStandaloneLeashIfFree", kScriptName, ApplyStandaloneLeashIfFree);
         a_vm->RegisterFunction("ApplyStandaloneLeashToBone", kScriptName, ApplyStandaloneLeashToBone);
         a_vm->RegisterFunction("ApplyStandaloneLeashAtPosition", kScriptName, ApplyStandaloneLeashAtPosition);
+        a_vm->RegisterFunction("ApplyStandaloneLeashAtPositionIfFree", kScriptName, ApplyStandaloneLeashAtPositionIfFree);
         a_vm->RegisterFunction("DisconnectLeash", kScriptName, DisconnectLeash);
         a_vm->RegisterFunction("UnleashAll", kScriptName, UnleashAll);
         a_vm->RegisterFunction("IsLeashed", kScriptName, IsLeashed);

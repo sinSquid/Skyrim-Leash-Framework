@@ -30,6 +30,7 @@ namespace LeashFramework {
         [[nodiscard]] bool ApplyAtPosition(RE::Actor* a_leashed, RE::TESObjectCELL* a_anchorCell, float a_x, float a_y, float a_z, std::string_view a_parentBone, std::string_view a_leashBoneMatch, float a_minLength,
             float a_maxLength, bool a_persistent);
         [[nodiscard]] bool ApplyDefinition(LeashDefinition a_definition);
+        [[nodiscard]] bool ApplyDefinition(LeashDefinition a_definition, bool a_requireFree);
         [[nodiscard]] bool Disconnect(RE::Actor* a_holder, RE::Actor* a_leashed);
         [[nodiscard]] bool UnleashAll(RE::Actor* a_actor);
         [[nodiscard]] bool IsLeashed(RE::Actor* a_actor) const;

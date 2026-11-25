@@ -254,7 +254,13 @@ namespace LeashFramework {
         return ApplyDefinition(std::move(definition));
     }
 
-    bool LeashManager::ApplyDefinition(LeashDefinition a_definition) {
+    bool LeashManager::ApplyDefinition(LeashDefinition a_definition) { return ApplyDefinition(std::move(a_definition), false); }
+
+    bool LeashManager::ApplyDefinition(LeashDefinition a_definition, bool a_requireFree) {
+        // This check and insertion execute in the same main-thread native call.
+        if (a_requireFree && std::ranges::any_of(_leashes, [&](const auto& leash) { return leash->GetDefinition().leashedFormID == a_definition.leashedFormID; })) {
+            return false;
+        }
         if (!IsValid(a_definition) || !FormsExist(a_definition)) {
             SKSE::log::warn("ApplyLeash rejected invalid arguments for {:08X}->{:08X}", a_definition.holderFormID, a_definition.leashedFormID);
             return false;

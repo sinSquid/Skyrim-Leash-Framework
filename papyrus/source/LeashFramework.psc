@@ -165,6 +165,10 @@ rightHand: When true, uses NPC R Hand [RHnd]. When false, uses NPC L Hand [LHnd]
 /;
 Bool Function ApplyStandaloneLeash(Actor holder, Actor leashed, String modelPath, String leashedAttachmentBone, String parentBone, String leashBoneMatch, Float minLength, Float maxLength, Bool persistent, Bool rightHand = True, Float leashedOffsetX = 0.0, Float leashedOffsetY = 0.0, Float leashedOffsetZ = 0.0) Global Native
 
+; Returns false without disturbing the existing rope if the target is already leashed.
+; disabledFeatures: 1 disables ragdoll, 2 disables overstretch prevention, 3 disables both.
+Bool Function ApplyStandaloneLeashIfFree(Actor holder, Actor leashed, String modelPath, String leashedAttachmentBone, String parentBone, String leashBoneMatch, Float minLength, Float maxLength, Bool persistent, Bool rightHand = True, Float leashedOffsetX = 0.0, Float leashedOffsetY = 0.0, Float leashedOffsetZ = 0.0, Int disabledFeatures = 0) Global Native
+
 ;/
 Connects a standalone rope from the leashed actor to an exact bone on the holder.
 
@@ -180,6 +184,10 @@ Connects a holderless standalone rope from the leashed actor to a fixed world po
 anchorCell, x, y, z: Match ApplyLeashAtPosition, including pulling, faction, and disconnect behavior.
 /;
 Bool Function ApplyStandaloneLeashAtPosition(Actor leashed, Cell anchorCell, Float x, Float y, Float z, String modelPath, String leashedAttachmentBone, String parentBone, String leashBoneMatch, Float minLength, Float maxLength, Bool persistent, Float leashedOffsetX = 0.0, Float leashedOffsetY = 0.0, Float leashedOffsetZ = 0.0) Global Native
+
+; Returns false without disturbing the existing rope if the target is already leashed.
+; disabledFeatures: 1 disables ragdoll, 2 disables overstretch prevention, 3 disables both.
+Bool Function ApplyStandaloneLeashAtPositionIfFree(Actor leashed, Cell anchorCell, Float x, Float y, Float z, String modelPath, String leashedAttachmentBone, String parentBone, String leashBoneMatch, Float minLength, Float maxLength, Bool persistent, Float leashedOffsetX = 0.0, Float leashedOffsetY = 0.0, Float leashedOffsetZ = 0.0, Int disabledFeatures = 0) Global Native
 
 ;/
 Disconnects the leash matching the specific holder and leashed actor.
